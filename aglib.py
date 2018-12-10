@@ -5,15 +5,34 @@ import datetime
 import pkg_resources
 import serial
 
-DEV = True
-MOCK = True
-PORT_GAUSS = 'COM8'
+DEV = False
+MOCK = False
+PORT_GAUSS = 'COM7'  # Nobody else is going to use this library anyway!
+PORT_PSU = 'COMX'
 # IMG_XPLUS = 'res/x+.png'
 IMG_XPLUS = pkg_resources.resource_filename(__name__, 'res/x+.png')
 # IMG_ZMINUS = 'res/z-.png'
 IMG_ZMINUS = pkg_resources.resource_filename(__name__, 'res/z-.png')
 IMG_LINK = pkg_resources.resource_filename(__name__, 'res/link.png')
 IMG_IDLE = pkg_resources.resource_filename(__name__, 'res/idle.png')
+
+
+class idleFinder(object):
+    def __init__(self):
+	    self.x, self.y = None, None
+		
+    def find_idle():
+        if self.x is not None:
+            xy = pyautogui.locateCenterOnScreen(IMG_IDLE, minSearchTime=5, region=(self.x-100, self.y-100, self.x+100, self.y+100))
+            if xy is not None:
+                return xy
+        xy = pyautogui.locateCenterOnScreen(IMG_IDLE, minSearchTime=5)
+        if xy is not None:
+            self.x, self.y = xy
+            return xy
+        else:
+            return None
+		
 
 
 class MC4000(object):
@@ -38,8 +57,16 @@ class MC4000(object):
             raise RuntimeError('MC4000 link inactive or not up at all. Please start software and click "link".')
 
     def moveto(self, target, relative=False, polarity=1):
+        """
+        Move to coordinates.
+        :param target: Target coords. Length-3 iterable: x, y, z.
+        :param relative: True for relative movement.
+        :param polarity: Backlash compensation. 1 for always approach in positive direction. -1 for negative direction.
+        0 for no-check.
+        :return: None
+        """
         if relative:
-            delta = target
+            delta = np.asarray(target)
         else:
             delta = np.asarray(target) - self._position
         for i in range(3):  # x y z axes
@@ -54,6 +81,12 @@ class MC4000(object):
                 self.step(i, polarity)
 
     def step(self, axis, direction):
+        """
+        Move one step in along axis and direction.
+        :param axis: 0 or 1 or 2. 0 for x, 1 for y, 2 for z.
+        :param direction: 1 for positive, 0 for negative.
+        :return: None
+        """
         if direction not in (-1, 1):
             raise ValueError('Only 1 (plus) or -1 (minus) accepted as stepping directions')
         if axis not in (0, 1, 2):
@@ -74,6 +107,10 @@ class MC4000(object):
             print('now at %s' % str(self.position))
 
     def initialize_buttons(self):
+        """
+        Finds UI buttons and return coordinates
+        :return: A bunch of coordinates on screen. Don't move the window after initialization!
+        """
         coord_xplus = np.array(pyautogui.locateCenterOnScreen(IMG_XPLUS))
         if coord_xplus.size != 2:
             raise ValueError('Failed to locate X+ button. Check if MC4000 UI is running and is on top.')
@@ -95,23 +132,38 @@ xyz = MC4000()  # singleton
 
 if not MOCK:
     _s_gauss = serial.Serial(PORT_GAUSS, 115200, timeout=1)
-    _s_gauss.write('DATA?>')
+    _s_gauss.write(b'DATA?>')
 
 
 def read_once():
+    """
+    Reads latest reading from CH330 gaussmeter.
+    :return: Length-3 ndarray, fields in x, y, z directions.
+    """
     if MOCK:
         print('read once!')
         return np.array([1, 2, 3])
     _s_gauss.reset_input_buffer()
+    _s_gauss.reset_input_buffer()
     _s_gauss.read_until('\n')
     raw_msg = _s_gauss.read_until('\n').decode(encoding='ascii')
-    msg = raw_msg[1:].split('>')[0].split[',']
+    msg = raw_msg[1:].split('>')[0].split('/')
     if DEV:
         print('raw: %s, trimmedL %s' % (raw_msg, msg))
     return np.array([float(x) for x in msg])
 
 
+def read_n_times(reps):
+    return np.average([read_once() for _ in range(reps)], axis=0)
+
+
 def scan(steps, filename):
+    """
+    Automated scan.
+    :param steps: steps to take to either side of zero. 0 for fixed. [xsteps, ysteps, zsteps].
+    :param filename: Filename to save into, append mode.
+    :return: None
+    """
     steps = np.asarray(steps)
     with open(filename, 'a') as f:
         f.write('Test started %s\n' % str(datetime.datetime.now()))
@@ -123,4 +175,6 @@ def scan(steps, filename):
                     mag = read_once()
                     pos = np.array([x, y, z]) * xyz.step_lengths
                     numbers = np.hstack((pos, mag))
+                    print("measured at%.2f, %.2f %.2f: %s" % (x, y, z, str(numbers[3:])))
                     f.write(','.join([str(n) for n in numbers]) + '\n')
+        xyz.moveto([0, 0, 0])
