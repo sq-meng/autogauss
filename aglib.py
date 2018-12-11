@@ -4,9 +4,9 @@ import time
 import datetime
 import pkg_resources
 import serial
+import re
 
-DEV = False
-MOCK = False
+from res.settings import DEV, MOCK
 PORT_GAUSS = 'COM7'  # Nobody else is going to use this library anyway!
 PORT_PSU = 'COMX'
 # IMG_XPLUS = 'res/x+.png'
@@ -19,11 +19,12 @@ IMG_IDLE = pkg_resources.resource_filename(__name__, 'res/idle.png')
 
 class idleFinder(object):
     def __init__(self):
-	    self.x, self.y = None, None
-		
-    def find_idle():
+        self.x, self.y = None, None
+
+    def find_idle(self):
         if self.x is not None:
-            xy = pyautogui.locateCenterOnScreen(IMG_IDLE, minSearchTime=5, region=(self.x-100, self.y-100, self.x+100, self.y+100))
+            xy = pyautogui.locateCenterOnScreen(IMG_IDLE, minSearchTime=5,
+                                                region=(self.x-100, self.y-100, self.x+100, self.y+100))
             if xy is not None:
                 return xy
         xy = pyautogui.locateCenterOnScreen(IMG_IDLE, minSearchTime=5)
@@ -32,7 +33,9 @@ class idleFinder(object):
             return xy
         else:
             return None
-		
+
+
+finder = idleFinder()  # singleton
 
 
 class MC4000(object):
@@ -95,12 +98,12 @@ class MC4000(object):
             button_ind = 0
         else:
             button_ind = 1
-        pyautogui.locateCenterOnScreen(IMG_IDLE, minSearchTime=5)  # Make sure drive is idle before attempting
-        pyautogui.moveTo(*self._buttons[axis][button_ind], duration=0.2)
+        finder.find_idle()  # Make sure drive is idle before attempting
+        pyautogui.moveTo(*self._buttons[axis][button_ind], duration=0.05)
         pyautogui.click()
-        pyautogui.locateCenterOnScreen(IMG_IDLE, minSearchTime=5)  # Make sure drive is idle after attempting
+        finder.find_idle()  # Make sure drive is idle after attempting
         if not MOCK:
-            time.sleep(0.2)  # delay a little anyway.
+            time.sleep(0.1)  # delay a little anyway.
         self._position[axis] += direction
         if DEV:
             print('pressing UI button %d, %d' % (axis, button_ind))
@@ -143,11 +146,15 @@ def read_once():
     if MOCK:
         print('read once!')
         return np.array([1, 2, 3])
-    _s_gauss.reset_input_buffer()
-    _s_gauss.reset_input_buffer()
+    _s_gauss.read_all()
     _s_gauss.read_until('\n')
     raw_msg = _s_gauss.read_until('\n').decode(encoding='ascii')
-    msg = raw_msg[1:].split('>')[0].split('/')
+    pattern = '#([-+]?\d*\.{0,1}\d+)/([-+]?\d*\.{0,1}\d+)/([-+]?\d*\.{0,1}\d+)\>'
+    msg = re.findall(pattern, raw_msg)
+    if len(msg) == 0:
+        raise ValueError('Invalid raw message received: %s' % msg)
+    else:
+        msg = msg[0]
     if DEV:
         print('raw: %s, trimmedL %s' % (raw_msg, msg))
     return np.array([float(x) for x in msg])
@@ -172,7 +179,12 @@ def scan(steps, filename):
             for y in range(-steps[1], steps[1] + 1):
                 for z in range(-steps[2], steps[2] + 1):
                     xyz.moveto([x, y, z])
-                    mag = read_once()
+                    while True:
+                        try:
+                            mag = read_once()
+                            break
+                        except (ValueError, RuntimeError, OSError, IndexError):
+                            pass
                     pos = np.array([x, y, z]) * xyz.step_lengths
                     numbers = np.hstack((pos, mag))
                     print("measured at%.2f, %.2f %.2f: %s" % (x, y, z, str(numbers[3:])))
