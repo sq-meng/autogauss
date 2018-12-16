@@ -5,6 +5,7 @@ font = {'family': 'arial',
 matplotlib.rc('font', **font)
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.patches import Rectangle, Circle
 
 
 
@@ -117,3 +118,18 @@ def plot_gradient(data, axes, step_length, mag_axis):
 
     cbar = f.colorbar(csf)
     cbar.ax.set_ylabel('Field strength gradient/cm')
+    return f, ax
+
+
+def draw_rectangle_cell(ax, width, height):
+    r = Rectangle([-width/2, -height/2], width, height, fill=False, linewidth=1, edgecolor='w', linestyle='--')
+    ax.plot(0, 0, 'b+', color='w')
+    ax.add_artist(r)
+    return r
+
+
+def draw_circular_cell(ax, diameter):
+    c = Circle([0, 0], diameter/2, fill=False, linewidth=1, edgecolor='w', linestyle='--')
+    ax.plot(0, 0, 'b+', color='w')
+    ax.add_artist(c)
+    return c
