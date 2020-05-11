@@ -184,7 +184,7 @@ def scan(steps, filename):
                             mag = read_once()
                             break
                         except (ValueError, RuntimeError, OSError, IndexError):
-                            pass
+                            print("Error! retrying...")
                     pos = np.array([x, y, z]) * xyz.step_lengths
                     numbers = np.hstack((pos, mag))
                     print("measured at%.2f, %.2f %.2f: %s" % (x, y, z, str(numbers[3:])))
